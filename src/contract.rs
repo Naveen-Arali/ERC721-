@@ -6,7 +6,7 @@ use cw2::set_contract_version;
 
 use crate::error::ContractError;
 use crate::msg::{CountResponse, ExecuteMsg, InstantiateMsg, QueryMsg};
-use crate::state::{State, STATE, Tokens, TOKEN};
+use crate::state::{State, STATE, Tokens, TOKEN, Approve, APPROVE};
 use cw_storage_plus;
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:erc721";
@@ -39,13 +39,12 @@ pub fn execute(
     info: MessageInfo,
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
-    match msg {
-        ExecuteMsg::Increment {} => try_increment(deps),
-        ExecuteMsg::Reset { count } => try_reset(deps, info, count),
-        ExecuteMsg::Mint {id,name,symbol} => try_mint(deps,info,id,name,symbol),
-        ExecuteMsg::Transfer { to,id } => try_transfer(deps, _env, info, String::from(to), id),
-
-    }
+    match msg {ExecuteMsg::Increment{}=>try_increment(deps),
+    ExecuteMsg::Reset{count}=>try_reset(deps,info,count),
+    ExecuteMsg::Mint{id,name,symbol}=>try_mint(deps,info,id,name,symbol),
+    ExecuteMsg::Transfer{to,id}=>try_transfer(deps,_env,info,String::from(to),id),
+    ExecuteMsg::Approve { to, id } => try_approve(deps, _env, info, String::from(to), id),
+    ExecuteMsg::TransferFrom { from, to, id } => try_transfer_from(deps, _env, info, String::from(from), String::from(to), id)}
 }
 
 pub fn try_mint(deps:DepsMut,info:MessageInfo,id:u8,name:String,symbol:String) -> Result<Response, ContractError>{
@@ -75,19 +74,65 @@ fn try_transfer(
     recipient: String,
     id:u8,
 ) -> Result<Response, ContractError> {
-    // perform_transfer(
-    //     deps.storage,
-    //     &info.sender,
-    //     &deps.api.addr_validate(recipient.as_str())?,
-    //     id,
-    //     amount,
-    // )?;
     let mut t = TOKEN.load(deps.storage, id.into()).unwrap();
     assert_eq!(t.owner,info.sender);
     t.owner = deps.api.addr_validate(recipient.as_str())?;
+    TOKEN.save(deps.storage, id.into(),&t)?;
 
     Ok(Response::new()
         .add_attribute("action", "transfer")
+        .add_attribute("sender", info.sender)
+        .add_attribute("recipient", recipient))
+}
+
+fn try_approve(
+    deps: DepsMut,
+    _env:Env,
+    info: MessageInfo,
+    recipient: String,
+    id:u8,
+) -> Result<Response,ContractError>{
+    let t = TOKEN.load(deps.storage, id.into()).unwrap();
+    assert_eq!(t.owner,info.sender);
+    let approve = Approve{
+        owner: t.owner,
+        user:deps.api.addr_validate(recipient.as_str())?,
+        id,
+        app: true,
+    };
+    APPROVE.save(deps.storage, id, &approve)?;
+    Ok(Response::new()
+        .add_attribute("action", "approve")
+        .add_attribute("sender", info.sender)
+        .add_attribute("recipient", recipient))
+}
+
+
+fn try_transfer_from(
+    deps: DepsMut,
+    _env: Env,
+    info: MessageInfo,
+    from:String,
+    recipient: String,
+    id:u8,
+) -> Result<Response, ContractError> {
+    let mut t = TOKEN.load(deps.storage, id.into()).unwrap();
+    let mut a = APPROVE.load(deps.storage, id.into()).unwrap();
+    if a.owner == t.owner &&  a.owner == from {
+        if a.app==true {
+            t.owner =deps.api.addr_validate(recipient.as_str())?;
+            TOKEN.save(deps.storage, id.into(), &t)?;
+            a.app= false;
+            APPROVE.save(deps.storage, id, &a)?;
+        }
+    } else{
+        return Err(ContractError::Unauthorized {});
+    }
+
+
+
+    Ok(Response::new()
+        .add_attribute("action", "transferFrom")
         .add_attribute("sender", info.sender)
         .add_attribute("recipient", recipient))
 }

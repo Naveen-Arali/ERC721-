@@ -20,7 +20,18 @@ pub enum ExecuteMsg {
     Transfer {
         to:Addr,
         id:u8,
+    },
+    Approve {
+        to:Addr,
+        id:u8,
+    },
+    TransferFrom {
+        from:Addr,
+        to:Addr,
+        id:u8,
     }
+
+
 
 }
 
